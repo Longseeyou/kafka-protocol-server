@@ -50,4 +50,4 @@ go vet ./...
 go run ./app
 ```
 
-Future development focuses on expanding protocol support, strengthening input validation, and improving storage performance.
+See [current status and roadmap](ROADMAP.md) for implementation limits, planned milestones, and completion checks. The immediate priority is verifying and hardening the existing container setup, followed by a basic produce-and-read workflow.
