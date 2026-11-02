@@ -1,0 +1,6 @@
+/data/
+*.exe
+*.test
+coverage.out
+.env
+*.local

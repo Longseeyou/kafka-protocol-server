@@ -1,0 +1,7 @@
+.git
+.github
+data
+*.exe
+*.log
+docs
+README.md
