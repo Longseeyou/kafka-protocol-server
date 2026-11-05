@@ -55,6 +55,21 @@ func handleConnection(conn net.Conn, metadata *handlers.ClusterMetadata, logs *h
 			handleDescribeTopicPartitionsRequest(conn, payload, metadata)
 		case 0: // ProduceRequest
 			handleProduceRequest(conn, payload, metadata, logs)
+		case 1: // Fetch
+			request, err := handlers.DecodeFetchRequest(payload)
+			if err != nil {
+				fmt.Println("Error decoding Fetch request:", err)
+				return
+			}
+			var topicMetadata handlers.TopicMetadata
+			if metadata != nil {
+				topicMetadata = extractClusterMetadata(metadata)
+			}
+			response := handlers.EncodeFetchResponse(handlers.ResponseHeader{CorrelationID: request.CorrelationID}, handlers.BuildFetchResponse(request, topicMetadata))
+			if _, err := conn.Write(response); err != nil {
+				fmt.Println("Error sending Fetch response:", err)
+				return
+			}
 		}
 	}
 }
@@ -89,6 +104,7 @@ func handleAPIVersionsRequest(conn net.Conn, payload []byte) {
 			{APIKey: 18, MinVersion: 3, MaxVersion: 4},
 			{APIKey: 75, MinVersion: 0, MaxVersion: 0},
 			{APIKey: 0, MinVersion: 11, MaxVersion: 11},
+			{APIKey: 1, MinVersion: 16, MaxVersion: 16},
 		},
 	}
 	response := handlers.EncodeAPIVersionsResponse(responseHeader, responseBody)

@@ -1,6 +1,6 @@
 # Current status and roadmap
 
-Updated: 2026-11-02
+Updated: 2026-11-05
 
 ## Direction
 
@@ -16,14 +16,15 @@ This roadmap describes planned work; unchecked items are not implemented. Milest
 | API discovery | ApiVersions flexible responses; advertises v3/v4 | Version handling and malformed requests need broader validation |
 | Topic inspection | DescribeTopicPartitions v0 | No Metadata API for standard client discovery |
 | Producing | Produce v11, multiple records and batches across topics and partitions, `acks=0` persistence | No idempotent or transactional guarantees; no replication |
+| Fetching | Fetch v16 decoding, empty responses, unknown-topic and invalid-partition errors; preserves requested order | Valid partitions always return empty records; no log reads, offset selection, byte limits, or sessions |
 | Storage | Batch framing and CRC checks, offset assignment, file appends with sync, recovery from existing logs | One storage mutex; rereads the whole partition log on every append; no segment rotation |
 | Configuration | Listen address, data directory, startup topic definitions, optional metadata log | Topic changes require restart; no topic administration API |
 | Packaging | Multi-stage Dockerfile, non-root runtime, Compose, persistent volume | Container image build and runtime verification remain pending |
-| Tests | Batch appends, successive offsets, restart recovery, concurrency, invalid batches, partition results, zero acknowledgements, topic configuration | No complete external-client interoperability suite |
+| Tests | Batch appends, successive offsets, restart recovery, concurrency, invalid batches, partition results, zero acknowledgements, topic configuration, Fetch wire encoding, repeated requests, tagged fields, and truncated requests | No complete external-client interoperability suite |
 
 Go tests, vet, and a local TCP ApiVersions smoke check passed during initial setup. Compose configuration was validated; Docker image execution was not verified because the engine was unavailable. These are baseline checks, not an ongoing CI guarantee.
 
-Fetch, consumer groups, authentication, TLS, retention, replication, and transactions are not implemented. Encoded batches are retained without fully validating individual record contents or establishing compression compatibility.
+Fetching stored records, consumer groups, authentication, TLS, retention, replication, and transactions are not implemented. Encoded batches are retained without fully validating individual record contents or establishing compression compatibility.
 
 ## Milestone 1 — Verify and harden the container baseline
 
@@ -45,7 +46,8 @@ Provide the smallest useful single-node workflow.
 
 - [ ] Implement a documented Metadata API version for broker, topic, and partition discovery.
 - [ ] Add an advertised broker address distinct from the listen address for host/container networking.
-- [ ] Implement a documented Fetch API version with offset lookup, byte limits, empty responses, and partition errors.
+- [x] Implement Fetch v16 request decoding, empty responses, and topic/partition errors.
+- [ ] Extend Fetch v16 to read stored batches with offset lookup and byte limits; document session behavior.
 - [ ] Implement ListOffsets for supported earliest/latest offset queries.
 - [ ] Select and pin an external Kafka client for interoperability tests; document required options and unsupported defaults.
 - [ ] Test produce, fetch, restart, and fetch again across multiple partitions.
