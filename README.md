@@ -33,11 +33,11 @@ Topic configuration is read at startup. Keep it consistent across restarts; chan
 
 - ApiVersions with flexible responses (v3/v4).
 - DescribeTopicPartitions v0.
-- Fetch v16 request decoding, empty responses, and topic/partition validation.
+- Fetch v16 with partition-log reads, empty responses, and topic/partition validation.
 - Produce v11 with multiple records, batches, topics, and partitions.
 - Disk appends, CRC checks, offset recovery, and zero-acknowledgement writes.
 
-Fetch currently returns empty records for valid requested partitions, even when their logs contain data; disk reads, fetch offsets, byte limits, and sessions are not implemented. Unknown topic IDs return error 100 and invalid partitions return error 3.
+Fetch returns the entire initial log segment for each valid requested partition, preserving encoded batches and CRCs. Missing log files produce empty responses. Fetch offset selection, byte limits, sessions, and accurate response watermarks are not implemented; watermark and log-start fields currently remain zero. Unknown topic IDs return error 100 and invalid partitions return error 3.
 
 Metadata, consumer groups, replication, transactions, authentication, and TLS are not implemented. Standard Kafka producer/consumer tools generally need additional APIs and are not supported end to end yet. The server is intended for local protocol experiments; malformed-input handling and storage performance still need work.
 

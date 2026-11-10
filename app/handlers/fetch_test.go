@@ -3,9 +3,79 @@ package handlers
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestFetchRecordsFromDisk(t *testing.T) {
+	root := t.TempDir()
+	id := UUID{42}
+	metadata := TopicMetadata{
+		Topics:     map[string]Topic{"fruit": {TopicID: id}},
+		Partitions: map[UUID][]Partition{id: {{PartitionIndex: 0}, {PartitionIndex: 2}}},
+	}
+	request := FetchRequest{Topics: []FetchTopic{{TopicID: id, Partitions: []FetchPartition{{Index: 0}}}}}
+	path := filepath.Join(root, "fruit-0", "00000000000000000000.log")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"Hello Kafka!", strings.Repeat("x", 200)} {
+		t.Run(value[:5], func(t *testing.T) {
+			batch := testBatch(value)
+			if err := os.WriteFile(path, batch, 0644); err != nil {
+				t.Fatal(err)
+			}
+			response := NewPartitionLog(root).Fetch(request, metadata)
+			if p := response[0].Partitions[0]; p.ErrorCode != 0 || !bytes.Equal(p.Records, batch) {
+				t.Fatalf("partition = %+v, want original disk bytes", p)
+			}
+			frame := EncodeFetchResponse(ResponseHeader{CorrelationID: 99}, response)
+			if int(binary.BigEndian.Uint32(frame)) != len(frame)-4 || binary.BigEndian.Uint32(frame[4:]) != 99 {
+				t.Fatal("incorrect frame length or correlation ID")
+			}
+			// Header (5), body prefix (11), topic ID/count (17), partition fields (35).
+			r := bytes.NewReader(frame[4+5+11+17+35:])
+			length, err := binary.ReadUvarint(r)
+			if err != nil || length != uint64(len(batch)+1) {
+				t.Fatalf("compact records length = %d, %v", length, err)
+			}
+			got := make([]byte, len(batch))
+			if _, err := io.ReadFull(r, got); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, batch) {
+				t.Fatal("wire record batch differs from disk, including CRC")
+			}
+			tags, err := io.ReadAll(r)
+			if err != nil || !bytes.Equal(tags, []byte{0, 0, 0}) {
+				t.Fatalf("trailing tags = %x, %v", tags, err)
+			}
+		})
+	}
+
+	request.Topics[0].Partitions = []FetchPartition{{Index: 2}, {Index: 7}}
+	request.Topics = append(request.Topics, FetchTopic{TopicID: UUID{99}, Partitions: []FetchPartition{{Index: 0}}})
+	response := NewPartitionLog(root).Fetch(request, metadata)
+	if p := response[0].Partitions[0]; p.ErrorCode != 0 || len(p.Records) != 0 {
+		t.Fatalf("missing log should be empty: %+v", p)
+	}
+	if response[0].Partitions[1].ErrorCode != 3 || response[1].Partitions[0].ErrorCode != 100 {
+		t.Fatalf("validation errors lost: %+v", response)
+	}
+
+	// A filesystem read failure must not become a successful empty response.
+	if err := os.MkdirAll(filepath.Join(root, "fruit-2", "00000000000000000000.log"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	response = NewPartitionLog(root).Fetch(request, metadata)
+	if response[0].Partitions[0].ErrorCode != -1 {
+		t.Fatal("log read failure was not reported")
+	}
+}
 
 func fetchFixture() []byte {
 	b := binary.BigEndian.AppendUint16(nil, 1)

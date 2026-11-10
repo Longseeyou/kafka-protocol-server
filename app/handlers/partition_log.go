@@ -22,6 +22,29 @@ type PartitionLog struct {
 
 func NewPartitionLog(root string) *PartitionLog { return &PartitionLog{root: root} }
 
+func (s *PartitionLog) logPath(topic string, partition int32) (string, error) {
+	if topic == "" || topic == "." || topic == ".." || strings.ContainsAny(topic, `/\:`) || partition < 0 {
+		return "", fmt.Errorf("invalid topic or partition")
+	}
+	return filepath.Join(s.root, fmt.Sprintf("%s-%d", topic, partition), "00000000000000000000.log"), nil
+}
+
+// Read shares the append lock so readers cannot observe a partially written batch.
+// A known partition without a log file is empty.
+func (s *PartitionLog) Read(topic string, partition int32) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path, err := s.logPath(topic, partition)
+	if err != nil {
+		return nil, err
+	}
+	records, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return records, err
+}
+
 // walkBatches checks framing and CRC without interpreting application values.
 func walkBatches(data []byte, visit func([]byte) error) error {
 	for len(data) > 0 {
@@ -55,8 +78,9 @@ func walkBatches(data []byte, visit func([]byte) error) error {
 func (s *PartitionLog) Append(topic string, partition int32, records []byte) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if topic == "" || topic == "." || topic == ".." || strings.ContainsAny(topic, `/\:`) || partition < 0 {
-		return -1, fmt.Errorf("invalid topic or partition")
+	path, err := s.logPath(topic, partition)
+	if err != nil {
+		return -1, err
 	}
 	if len(records) == 0 {
 		return -1, fmt.Errorf("empty record set")
@@ -64,7 +88,6 @@ func (s *PartitionLog) Append(topic string, partition int32, records []byte) (in
 	if err := walkBatches(records, func([]byte) error { return nil }); err != nil {
 		return -1, err
 	}
-	path := filepath.Join(s.root, fmt.Sprintf("%s-%d", topic, partition), "00000000000000000000.log")
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return -1, err

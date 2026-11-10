@@ -65,7 +65,7 @@ func handleConnection(conn net.Conn, metadata *handlers.ClusterMetadata, logs *h
 			if metadata != nil {
 				topicMetadata = extractClusterMetadata(metadata)
 			}
-			response := handlers.EncodeFetchResponse(handlers.ResponseHeader{CorrelationID: request.CorrelationID}, handlers.BuildFetchResponse(request, topicMetadata))
+			response := handlers.EncodeFetchResponse(handlers.ResponseHeader{CorrelationID: request.CorrelationID}, logs.Fetch(request, topicMetadata))
 			if _, err := conn.Write(response); err != nil {
 				fmt.Println("Error sending Fetch response:", err)
 				return

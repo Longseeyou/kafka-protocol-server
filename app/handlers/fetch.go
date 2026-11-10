@@ -30,7 +30,9 @@ func EncodeFetchResponse(header ResponseHeader, topics []FetchTopicResponse) []b
 			payload = binary.BigEndian.AppendUint64(payload, 0)          // log start offset
 			payload = append(payload, 1)                                 // empty aborted transactions
 			payload = binary.BigEndian.AppendUint32(payload, 0xffffffff) // no preferred replica
-			payload = append(payload, 1, 0)                              // empty records, partition tags
+			payload = binary.AppendUvarint(payload, uint64(len(partition.Records)+1))
+			payload = append(payload, partition.Records...)
+			payload = append(payload, 0) // partition tags
 		}
 		payload = append(payload, 0) // topic tags
 	}
@@ -62,6 +64,7 @@ type FetchTopicResponse struct {
 type FetchPartitionResponse struct {
 	Index     int32
 	ErrorCode int16
+	Records   []byte
 }
 
 // DecodeFetchRequest parses header v2 and Fetch v16, excluding frame size.
@@ -160,8 +163,7 @@ func DecodeFetchRequest(payload []byte) (FetchRequest, error) {
 	return request, nil
 }
 
-// BuildFetchResponse validates topic IDs and requested partitions for empty-topic
-// fetches. Reading record batches from partition logs is not implemented yet.
+// BuildFetchResponse validates topic IDs and requested partitions.
 func BuildFetchResponse(request FetchRequest, metadata TopicMetadata) []FetchTopicResponse {
 	var topics []FetchTopicResponse
 	for _, requested := range request.Topics {
@@ -189,4 +191,28 @@ func BuildFetchResponse(request FetchRequest, metadata TopicMetadata) []FetchTop
 		topics = append(topics, topic)
 	}
 	return topics
+}
+
+// Fetch returns stored record batches unchanged, including their original CRCs.
+func (s *PartitionLog) Fetch(request FetchRequest, metadata TopicMetadata) []FetchTopicResponse {
+	response := BuildFetchResponse(request, metadata)
+	names := make(map[UUID]string, len(metadata.Topics))
+	for name, topic := range metadata.Topics {
+		names[topic.TopicID] = name
+	}
+	for i := range response {
+		for j := range response[i].Partitions {
+			partition := &response[i].Partitions[j]
+			if partition.ErrorCode != 0 {
+				continue
+			}
+			records, err := s.Read(names[response[i].TopicID], partition.Index)
+			if err != nil {
+				partition.ErrorCode = -1 // UNKNOWN_SERVER_ERROR
+				continue
+			}
+			partition.Records = records
+		}
+	}
+	return response
 }
